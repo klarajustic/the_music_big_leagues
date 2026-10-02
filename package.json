@@ -1,0 +1,18 @@
+{
+  "name": "music-league-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "push": "clasp push",
+    "watch": "clasp push --watch",
+    "open": "clasp open",
+    "test:py": "python3 -m unittest discover -s test -p \"*_test.py\""
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83",
+    "jsdom": "^29.1.1"
+  }
+}

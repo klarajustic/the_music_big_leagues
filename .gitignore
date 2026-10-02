@@ -1,0 +1,31 @@
+node_modules/
+
+# clasp's OAuth credentials, if a login ever writes them here rather than ~/
+.clasprc.json
+
+# tools/yt_playlist.py — the ytmusicapi auth file is browser cookies for a
+# personal Google account. Treat it as a credential; it must never be committed.
+tools/.ytmusic-auth.json
+tools/.spotify-user-auth.json
+tools/.cache/
+__pycache__/
+*.pyc
+
+# NOT ignored, deliberately: tools/yt-overrides.json. hitster_yt gitignores its
+# equivalent because a deck is one person's; ours corrects a shared round that
+# stays in the record forever, so the correction belongs in the repo with it.
+
+# players.tsv is a transfer file for pasting the roster into the Players tab.
+# The Sheet is the source of truth for who is in the league; a committed copy
+# would be a second one, and it would drift.
+players.tsv
+
+# Credentials and machine-specific config. .clasp.json carries the scriptId of
+# one particular Apps Script project, which is not a secret but is not public
+# business either; copy .clasp.json.example and fill it in.
+.env
+.clasp.json
+
+# Raw page captures kept for local reference. Only the redacted fixture in
+# test/ belongs in the repo; these carry real names and Music League user ids.
+/page-*.html

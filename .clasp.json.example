@@ -1,0 +1,5 @@
+{
+  "scriptId": "YOUR_APPS_SCRIPT_ID",
+  "rootDir": "src",
+  "filePushOrder": ["src/Config.js"]
+}

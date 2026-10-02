@@ -1,0 +1,17 @@
+# WHAT CLASP PUSHES
+#
+# clasp only ever walks rootDir, which is "src". tools/ and test/ are not
+# excluded here so much as invisible: clasp never looks at them. The Python
+# tool in tools/ is a separate runtime and cannot reach Apps Script even if
+# this file were deleted. Same for the repo config at the root — .clasp.json
+# included, which is why the scriptId is never uploaded.
+#
+# Patterns below are matched against paths relative to rootDir (src/), so they
+# can only ever filter things inside src/. That is the point: they are the
+# second line of defence for a stray file landing in the pushed directory.
+#
+# Subdirectories are deliberately not whitelisted. Apps Script projects are
+# flat, and clasp would flatten src/sub/x.js into a file called "sub/x".
+**/**
+!*.js
+!appsscript.json
