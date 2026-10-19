@@ -41,7 +41,10 @@ function loadAll_() {
   const guesses = readTable_(SHEETS.GUESSES).map(function (g) {
     return {
       round_id: String(g.round_id), track_id: String(g.track_id),
-      guesser: String(g.guesser).trim(), guessed: String(g.guessed).trim()
+      guesser: String(g.guesser).trim(), guessed: String(g.guessed).trim(),
+      // The only timing Music League gives us anywhere: the form records when
+      // each person answered. Submissions and votes carry no timestamps at all.
+      timestamp: g.timestamp ? new Date(g.timestamp).getTime() : 0
     };
   });
   const tracks = readTable_(SHEETS.TRACKS).map(function (t) {
@@ -712,6 +715,90 @@ function seasonAwards_(d, results, guessScores, fans) {
       awards.push(['One hit wonder', spiky.name,
         'their best round was ' + round2_(spiky.ratio) + 'x their own average',
         round2_(spiky.ratio)]);
+    }
+  }
+
+  function mean_(xs) {
+    return xs.reduce(function (a, b) { return a + b; }, 0) / xs.length;
+  }
+
+  // How people spend a round's points: a few big bets, or a little everywhere.
+  const backedPerRound = {};
+  d.votes.forEach(function (v) {
+    if (v.points <= 0) return;
+    const k = v.voter + '\u0000' + v.round_id;
+    backedPerRound[k] = (backedPerRound[k] || 0) + 1;
+  });
+  const spreadBy = {};
+  Object.keys(backedPerRound).forEach(function (k) {
+    const voter = k.split('\u0000')[0];
+    if (!spreadBy[voter]) spreadBy[voter] = [];
+    spreadBy[voter].push(backedPerRound[k]);
+  });
+  const spenders = Object.keys(spreadBy).filter(function (n) {
+    return spreadBy[n].length >= MIN_ROUNDS_FOR_PATTERN;
+  });
+  if (spenders.length > 1) {
+    const ranked = spenders.map(function (n) { return { name: n, avg: mean_(spreadBy[n]) }; });
+    const tight = ranked.slice().sort(function (a, b) { return a.avg - b.avg; })[0];
+    const wide = ranked.slice().sort(function (a, b) { return b.avg - a.avg; })[0];
+    if (tight.name !== wide.name) {
+      awards.push(['All in', tight.name,
+        'backs only ' + round2_(tight.avg) + ' songs a round, in big chunks', round2_(tight.avg)]);
+      awards.push(['Fan of everything', wide.name,
+        'spreads their points across ' + round2_(wide.avg) + ' songs a round', round2_(wide.avg)]);
+    }
+  }
+
+  // Guessing habits. Everything below needs the guessing game to have run.
+  const guessHabit = {};
+  d.guesses.forEach(function (g) {
+    const actual = submitterOf[key_(g.round_id, g.track_id)];
+    if (!actual || actual === g.guesser) return;   // your own song never counts
+    if (!guessHabit[g.guesser]) guessHabit[g.guesser] = { total: 0, noIdea: 0 };
+    guessHabit[g.guesser].total++;
+    if (g.guessed === NO_IDEA) guessHabit[g.guesser].noIdea++;
+  });
+  const committed = Object.keys(guessHabit).filter(function (n) { return guessHabit[n].total >= 5; });
+  if (committed.length) {
+    const sure = committed.map(function (n) {
+      return { name: n, rate: guessHabit[n].noIdea / guessHabit[n].total };
+    }).sort(function (a, b) { return a.rate - b.rate; })[0];
+    awards.push(['Never says no idea', sure.name,
+      'passed on only ' + Math.round(sure.rate * 100) + '% of songs',
+      round2_(1 - sure.rate)]);
+  }
+
+  // When guesses land, ranked within each round so a late round does not make
+  // everyone look like a procrastinator.
+  const lastTouch = {};
+  d.guesses.forEach(function (g) {
+    if (!g.timestamp) return;
+    const k = g.guesser + '\u0000' + g.round_id;
+    lastTouch[k] = Math.max(lastTouch[k] || 0, g.timestamp);
+  });
+  const perRoundOrder = {};
+  Object.keys(lastTouch).forEach(function (k) {
+    const parts = k.split('\u0000');
+    if (!perRoundOrder[parts[1]]) perRoundOrder[parts[1]] = [];
+    perRoundOrder[parts[1]].push({ name: parts[0], at: lastTouch[k] });
+  });
+  const placings = {};
+  Object.keys(perRoundOrder).forEach(function (rid) {
+    const list = perRoundOrder[rid].slice().sort(function (a, b) { return a.at - b.at; });
+    list.forEach(function (e, i) {
+      if (!placings[e.name]) placings[e.name] = [];
+      placings[e.name].push(list.length > 1 ? i / (list.length - 1) : 0.5);
+    });
+  });
+  const punctual = Object.keys(placings).filter(function (n) { return placings[n].length >= 2; });
+  if (punctual.length > 1) {
+    const ranked = punctual.map(function (n) { return { name: n, avg: mean_(placings[n]) }; });
+    const early = ranked.slice().sort(function (a, b) { return a.avg - b.avg; })[0];
+    const late = ranked.slice().sort(function (a, b) { return b.avg - a.avg; })[0];
+    if (early.name !== late.name) {
+      awards.push(['First in', early.name, 'usually among the first to guess', round2_(1 - early.avg)]);
+      awards.push(['Deadline merchant', late.name, 'usually among the last', round2_(late.avg)]);
     }
   }
 

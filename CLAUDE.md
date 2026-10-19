@@ -544,45 +544,36 @@ tab depends on it.
 It needs a human in the loop and it now needs that human **twice**, at two
 different points in a round's life:
 
-**Mode A — round open (NEW).** Runs on the **voting page**, while songs are
-still anonymous, and yields the round's Spotify track ids. This is what fills
-the Tracks tab and therefore what the guess form is generated from.
+**Mode A — round open. DONE, verified live 2026-10-19 on round 10.**
 
-- Payload: `{roundId, tracks: [{track_id, position}]}`.
-- Ids only is enough. `GET /tracks/{id}` still works under client credentials,
-  so title, artist and release year can be enriched server-side exactly as
-  before — only the *source of the id list* has changed.
-- **Still unverified as of 2 Oct 2026**, and the reason is scheduling, not
-  difficulty: no round has been in the voting window during any working
-  session. The probe to run the moment one is, pasted into the console on the
-  voting page:
+Runs on the voting page while songs are still anonymous and posts the round's
+track list, which is what fills `Tracks` and therefore what the guess form is
+built from. The round is created with `status: open`, which is what
+`hourlyTick` keys off to build the form.
 
-  ```js
-  (() => { const $ = s => document.querySelectorAll(s); console.log({
-    url: location.pathname,
-    trackLinks: $('a[href*="open.spotify.com/track/"]').length,
-    trackIdAttrs: $('[id^="spotify:track:"]').length,
-    spotifyIframes: $('iframe[src*="spotify"]').length,
-  }); })()
-  ```
+**The ids are there, but nowhere near where Mode B finds them.** The voting
+page has no Spotify links, no `[id^="spotify:track:"]` cards and no iframes —
+the first probe returned zeros on all three and looked like a dead end. It
+plays Spotify's preview mp3 through a native `<audio>` element instead:
 
-  Any of the first two above zero means Mode A is buildable. Iframes only means
-  the ids are inside embed URLs. All zero means Music League hides track
-  identity until the reveal and Mode A is genuinely dead.
+```html
+<div id="song-0" class="song" x-init="weights['spotify:track:0pJW...'] = weight;">
+  <audio id="audio-spotify:track:0pJW...">
+```
 
-  `ML.discover()` is exposed on every page, including ones the scraper cannot
-  read, precisely so it is usable here.
+So the id comes off `[id^="audio-spotify:track:"]`, with the Alpine `x-init`
+attribute as a fallback. Position comes from `id="song-N"`, which is the
+running order the guess form's `T<n>.` prefixes must agree with. The theme
+falls back to the last segment of the page `<title>` because the voting page
+has no `h5.card-title`.
 
-- **Flag, unverified:** does the voting page actually expose Spotify track ids?
-  Very likely yes, because the page has to render playable songs and Music
-  League embeds Spotify to do it; the anonymity is about the *submitter*, not
-  the track. But it is unverified, and if the ids turn out to be Music
-  League's own opaque identifiers with no Spotify mapping, this mode is dead
-  and the fallback is manual id entry into the Tracks tab.
-- **Scheduling constraint:** the voting page only exists *while a round is
-  open*. The discover run has to happen during a live round and cannot be done
-  retroactively — so it is gated on a round being open, not just on someone
-  having time.
+**Still untested.** Mode B is pinned against `test/page-results.html`; this is
+not, because no usable capture exists yet — the one attempt grabbed a
+doubleclick ad iframe instead of the page. Capture it the same way during a
+live round (Elements panel, right-click the outermost `<html>`, Copy
+outerHTML — make sure the selection is the page and not an ad frame), redact
+it, and write the test. Until then a Music League redesign here fails silently
+as an empty round rather than as a failing test.
 
 **Mode B — reveal. DONE, console-only.** Runs on the results page and prints
 Submissions and Votes as paste-ready TSV. **No endpoint, no token, no
@@ -666,12 +657,15 @@ average listeners across their submissions), Populist (highest), Deep cut (the
 most obscure song that still scored well), Genre loyalist and Magpie (narrowest
 and widest genre spread).
 
-### 7. Guess form for a live round — BLOCKED on Task 4 Mode A
+### 7. Guess form for a live round — UNBLOCKED by Mode A
 
 Everything downstream exists and is tested. `hourlyTick` creates the form by
 itself for any round that is `open` and has `Tracks`, then mails the link via
 `notify_` (`NOTIFY_EMAIL` script property). `createGuessForm_` survives a
-missing deadline. The only missing input is the track list for an open round.
+missing deadline. Mode A now supplies the track list, so the chain is complete.
+
+Round 10 ("Songs that take an unexpected turn at some point", 10 tracks) was
+the first round ingested this way, on 2026-10-19.
 
 To run it manually once a round is in voting: fill `Tracks`, add a `Rounds` row
 with status `open`, install triggers, and the form appears within the hour —

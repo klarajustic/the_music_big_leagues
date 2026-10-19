@@ -33,16 +33,19 @@ function doPost(e) {
     });
 
     const mapped = mapPayload_(body);
-    ensureRound_(mapped.roundId, mapped.theme);
+    ensureRound_(mapped.roundId, mapped.theme, mapped.status);
     ingestTracks_(mapped.roundId, mapped.tracks);
-    ingestResults_(mapped.roundId, mapped.submissions, mapped.votes);
+    if (mapped.submissions && mapped.votes) {
+      ingestResults_(mapped.roundId, mapped.submissions, mapped.votes);
+    }
 
     return ContentService.createTextOutput(JSON.stringify({
       ok: true,
       round: mapped.roundId,
+      status: mapped.status,
       tracks: mapped.tracks.length,
-      submissions: mapped.submissions.length,
-      votes: mapped.votes.length
+      submissions: mapped.submissions ? mapped.submissions.length : 0,
+      votes: mapped.votes ? mapped.votes.length : 0
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
@@ -64,10 +67,26 @@ function doPost(e) {
  * page's DOM), this is a pass-through — which is how it ships.
  */
 function mapPayload_(body) {
+  // Mode A, from the voting page: the round's songs while they are still
+  // anonymous. No submitters and no votes exist yet, by design.
+  if (body.tracks && !body.submissions && !body.votes) {
+    if (!body.roundId) throw new Error('A tracks-only payload must name its round.');
+    return {
+      roundId: body.roundId,
+      theme: body.theme || '',
+      status: body.status || 'open',
+      tracks: body.tracks,
+      submissions: null,
+      votes: null
+    };
+  }
+
+  // Mode B, from the results page.
   if (body.submissions && body.votes) {
     return {
       roundId: body.roundId || currentRoundId_(),
       theme: body.theme || '',
+      status: body.status || 'scored',
       tracks: body.tracks || [],
       submissions: body.submissions,
       votes: body.votes
@@ -84,24 +103,31 @@ function mapPayload_(body) {
  * An existing row is left alone apart from its theme: it may carry a deadline
  * and a form id that the results page knows nothing about.
  */
-function ensureRound_(roundId, theme) {
+function ensureRound_(roundId, theme, status) {
   return withLock_(function () {
     const sh = sheet_(SHEETS.ROUNDS);
     const values = sh.getDataRange().getValues();
     const head = values[0];
     const idCol = head.indexOf('round_id');
     const themeCol = head.indexOf('theme');
+    const statusCol = head.indexOf('status');
 
     for (let i = 1; i < values.length; i++) {
       if (String(values[i][idCol]) === String(roundId)) {
         if (theme && !values[i][themeCol]) sh.getRange(i + 1, themeCol + 1).setValue(theme);
+        // A round only ever moves forwards: open -> locked -> scored. Re-opening
+        // a finished round because someone revisited its voting page would
+        // destroy the guess import that already ran.
+        if (status === 'scored' && values[i][statusCol] !== 'scored') {
+          sh.getRange(i + 1, statusCol + 1).setValue('scored');
+        }
         return false;
       }
     }
 
     const week = Number(String(roundId).replace(/[^0-9]/g, '')) || values.length;
     const season = currentSeason_(readTable_(SHEETS.ROUNDS));
-    sh.appendRow([roundId, week, theme || roundId, '', '', '', '', 'scored', season]);
+    sh.appendRow([roundId, week, theme || roundId, '', '', '', '', status || 'scored', season]);
     return true;
   });
 }

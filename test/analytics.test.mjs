@@ -846,6 +846,54 @@ test('the behaviour awards appear and name the right person', () => {
   assert.equal(byName['Chatterbox'][4], 3, 'blank comments must not count');
 });
 
+test('the spending and guessing-habit awards name the right person', () => {
+  // P always dumps everything on one song; Q always spreads it thin.
+  // X answers everything; Y passes constantly. X guesses early, Y guesses late.
+  const d = { tracks: [], submissions: [], votes: [], guesses: [], rounds: [] };
+  const letters = ['a', 'b', 'c', 'd'];
+
+  ['R01', 'R02', 'R03'].forEach((rid, r) => {
+    d.rounds.push({ round_id: rid, season: 1 });
+    letters.forEach((t, i) => {
+      const id = rid + t;
+      d.tracks.push({ round_id: rid, track_id: id, position: i + 1, title: id, artist: 'X', genres: '' });
+      d.submissions.push({ round_id: rid, track_id: id, submitter: 'S' + i, did_not_vote: false });
+    });
+    d.votes.push({ round_id: rid, track_id: rid + 'a', voter: 'P', points: 6, comment: '' });
+    letters.forEach((t) => d.votes.push({ round_id: rid, track_id: rid + t, voter: 'Q', points: 1, comment: '' }));
+
+    // X answers every song; Y says No idea on all but one.
+    letters.forEach((t, i) => {
+      d.guesses.push({ round_id: rid, track_id: rid + t, guesser: 'X', guessed: 'S' + i,
+        timestamp: 1000 + r });
+      d.guesses.push({ round_id: rid, track_id: rid + t, guesser: 'Y',
+        guessed: i === 0 ? 'S0' : 'No idea', timestamp: 9000 + r });
+    });
+  });
+
+  const byName = {};
+  for (const a of recompute(d).awards) byName[a[1]] = a;
+
+  assert.equal(byName['All in'][2], 'P', 'P puts everything on one song');
+  assert.equal(byName['Fan of everything'][2], 'Q', 'Q spreads it across all four');
+  assert.equal(byName['Never says no idea'][2], 'X');
+  assert.equal(byName['First in'][2], 'X', 'X guesses earliest every round');
+  assert.equal(byName['Deadline merchant'][2], 'Y', 'Y guesses latest every round');
+});
+
+test('timing awards stay absent when there are no guess timestamps', () => {
+  // Music League gives no submit or vote timestamps, so these must never
+  // appear off voting data alone.
+  const d = makeLeague({ players: 6, rounds: 4, guessParticipation: 0, seed: 1414 });
+  const names = recompute(d).awards.map((a) => a[1]);
+  assert.ok(!names.includes('First in'));
+  assert.ok(!names.includes('Deadline merchant'));
+  assert.ok(!names.includes('Never says no idea'));
+  // ...but the spending awards, which need only votes, should be there.
+  assert.ok(names.includes('All in'));
+  assert.ok(names.includes('Fan of everything'));
+});
+
 test('behaviour awards stay quiet until there is enough data', () => {
   // One round is not a pattern. Nothing that claims a habit should appear.
   const d = penaltyFixture();

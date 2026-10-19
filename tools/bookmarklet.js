@@ -78,7 +78,16 @@
     struck: 'h3 s',                           // pre-penalty total, struck through
     badge: '.badge',                          // carries "Did not vote"
     roundTitle: 'h5.card-title',              // the theme, e.g. "Cover Songs"
-    roundLabel: 'span, p'                     // one of these reads "ROUND 4"
+    roundLabel: 'span, p',                    // one of these reads "ROUND 4"
+
+    // --- voting page (Mode A). Nothing is shared with the results page:
+    // no Spotify links, no iframes, and the track id lives on a native
+    // <audio> element rather than on the card, because the page plays
+    // Spotify's preview mp3 directly.
+    votingSong: '.song',                      // one per song, id="song-0", "song-1", ...
+    votingAudio: '[id^="audio-spotify:track:"]',
+    votingTitle: 'h6',
+    votingArtist: 'h6 + span'
   };
 
   /**
@@ -142,12 +151,58 @@
       if (m) { number = Number(m[1]); break; }
     }
 
+    // The voting page has no h5.card-title; its theme is the last segment of
+    // "Music League | <league> | <theme>".
+    let theme = text(title);
+    if (!theme) {
+      const parts = String(doc.title || '').split('|');
+      if (parts.length >= 3) theme = parts[parts.length - 1].trim();
+    }
+
     const padded = number === null ? null : (number < 10 ? 'R0' + number : 'R' + number);
     return {
       number: number,
-      theme: text(title),
+      theme: theme,
       roundId: ROUND_ID_OVERRIDE || padded
     };
+  }
+
+  /**
+   * Reads the VOTING page: the round's songs while they are still anonymous.
+   *
+   * This is what fills the Tracks tab and therefore what the guess form is
+   * built from. There are no submitters here by design, and no votes yet.
+   *
+   * The id is taken from the <audio> element rather than the card, with the
+   * Alpine x-init attribute as a fallback, because those are the only two
+   * places Music League writes it on this page.
+   */
+  function extractVoting(doc) {
+    const out = [];
+    doc.querySelectorAll(SELECTORS.votingSong).forEach(function (card, i) {
+      let trackId = '';
+      const audio = card.querySelector(SELECTORS.votingAudio);
+      if (audio) {
+        trackId = audio.id.replace(/^audio-spotify:track:/, '');
+      } else {
+        const m = /spotify:track:([A-Za-z0-9]{22})/.exec(card.getAttribute('x-init') || '');
+        if (m) trackId = m[1];
+      }
+      if (!trackId) return;
+
+      // id="song-3" is the running order, which is what the guess form's
+      // "T4." prefixes have to agree with.
+      const nth = /^song-(\d+)$/.exec(card.id || '');
+      const title = card.querySelector(SELECTORS.votingTitle);
+
+      out.push({
+        position: nth ? Number(nth[1]) + 1 : i + 1,
+        track_id: trackId,
+        title: text(title),
+        artist: text(card.querySelector(SELECTORS.votingArtist))
+      });
+    });
+    return out;
   }
 
   /**
@@ -374,6 +429,46 @@
     console.log('  copy(ML.votesTSV)');
   }
 
+  /** Mode A: send the round's track list so the guess form can be built. */
+  function runVoting(doc) {
+    const tracks = extractVoting(doc);
+    const info = roundInfo(doc);
+    window.ML = { mode: 'voting', round: info, tracks: tracks, discover: discover };
+
+    console.log('[ML->Sheet] voting page: ' + tracks.length + ' songs, theme "' + info.theme + '"');
+    console.table(tracks);
+
+    const missing = tracks.filter(function (t) { return !t.title; }).length;
+    if (missing) {
+      console.warn('[ML->Sheet] ' + missing + ' song(s) had no title. Not sending.');
+      return;
+    }
+    if (!info.roundId) {
+      console.warn('[ML->Sheet] no round number on this page. Set ROUND_ID_OVERRIDE ' +
+        "to the round you want (e.g. 'R08') and re-run.");
+      return;
+    }
+    if (!ENDPOINT || !TOKEN) {
+      console.log('\n=== TRACKS — paste into the Tracks tab, cell A2 ===\n');
+      console.log(tracksTsv(tracks.map(function (t) {
+        return { position: t.position, track_id: t.track_id, title: t.title, artist: t.artist };
+      }), info.roundId));
+      return;
+    }
+
+    post({
+      token: TOKEN,
+      roundId: info.roundId,
+      theme: info.theme,
+      status: 'open',          // a round still being voted on, not a finished one
+      tracks: tracks
+    }).then(function (t) {
+      console.log('[ML->Sheet] sent:', t);
+    }).catch(function (e) {
+      console.error('[ML->Sheet] send failed:', e);
+    });
+  }
+
   function run(doc) {
     const round = buildRound(doc);
     window.ML = {
@@ -421,7 +516,9 @@
   // whole point of it -- so expose it before any extraction is attempted.
   window.ML = window.ML || { discover: discover };
 
-  if (document.querySelector(SELECTORS.songCard)) {
+  if (document.querySelector(SELECTORS.votingSong)) {
+    runVoting(document);   // Mode A: a round open for voting
+  } else if (document.querySelector(SELECTORS.songCard)) {
     run(document);   // already rendered: a console paste, or a fixture in a test
   } else {
     // htmx swaps the results in after load, so wait for them rather than
@@ -435,6 +532,7 @@
       else console.log('[ML->Sheet] no round results on this page.');
     };
     const observer = new MutationObserver(function () {
+      if (document.querySelector(SELECTORS.votingSong)) { finish(false); runVoting(document); return; }
       if (document.querySelector(SELECTORS.songCard)) finish(true);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
