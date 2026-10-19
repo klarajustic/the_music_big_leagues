@@ -44,6 +44,83 @@ function run() {
 
 const ML = run();
 
+// ===========================================================================
+// Mode A — the voting page
+// ===========================================================================
+
+/** Runs the scraper against the redacted voting capture. */
+function runVoting() {
+  const html = readFileSync(join(HERE, 'page-voting.html'), 'utf8');
+  const code = readFileSync(join(ROOT, 'tools/bookmarklet.js'), 'utf8');
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const quiet = () => {};
+  dom.window.console = { log: quiet, warn: quiet, error: quiet, table: quiet };
+  dom.window.eval(code);
+  const ML = dom.window.ML;
+  return {
+    mode: String(ML.mode),
+    round: JSON.parse(JSON.stringify(ML.round)),
+    tracks: JSON.parse(JSON.stringify(ML.tracks)),
+  };
+}
+
+const VOTE = runVoting();
+
+test('the voting page is recognised as its own mode', () => {
+  assert.equal(VOTE.mode, 'voting');
+  assert.equal(VOTE.tracks.length, 10);
+});
+
+test('every song yields a track id, including the three with no audio element', () => {
+  // The decisive case. Music League only renders <audio> for songs Spotify
+  // gives it a preview mp3 for; on this real round, three of ten had none.
+  // Reading the id from <audio> alone would have silently dropped them, and
+  // the round would have gone into the guess form three songs short.
+  const html = readFileSync(join(HERE, 'page-voting.html'), 'utf8');
+  const viaAudio = new Set([...html.matchAll(/audio-spotify:track:([A-Za-z0-9]{22})/g)].map((m) => m[1]));
+  assert.equal(viaAudio.size, 7, 'fixture should still have 3 songs without audio');
+
+  for (const t of VOTE.tracks) {
+    assert.match(t.track_id, /^[A-Za-z0-9]{22}$/, 'bad id: ' + JSON.stringify(t));
+  }
+  assert.equal(new Set(VOTE.tracks.map((t) => t.track_id)).size, 10, 'duplicate ids');
+
+  const rescued = VOTE.tracks.filter((t) => !viaAudio.has(t.track_id));
+  assert.equal(rescued.length, 3, 'the x-init fallback should have rescued exactly three');
+});
+
+test('positions follow the running order the guess form depends on', () => {
+  // importGuesses_ maps a form question back to a track by its T<n>. prefix,
+  // so these must be 1..n in page order or every guess lands on the wrong song.
+  assert.deepEqual(VOTE.tracks.map((t) => t.position), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+});
+
+test('every song has a title and an artist for the form question', () => {
+  for (const t of VOTE.tracks) {
+    assert.ok(t.title.length > 0, 'missing title: ' + t.track_id);
+    assert.ok(t.artist.length > 0, 'missing artist: ' + t.track_id);
+  }
+  const first = VOTE.tracks[0];
+  assert.equal(first.title, 'I Know The End');
+  assert.equal(first.artist, 'Phoebe Bridgers');
+});
+
+test('the theme falls back to the page title', () => {
+  // The voting page has no h5.card-title, unlike the results page.
+  assert.equal(VOTE.round.theme, 'Songs that take an unexpected turn at some point');
+});
+
+test('no submitters leak out of the voting page', () => {
+  // Songs are anonymous while voting is open. Mode A must not invent a
+  // submitter, or the guessing game gives itself away.
+  for (const t of VOTE.tracks) {
+    assert.equal(t.submitter, undefined);
+    assert.equal(t.votes, undefined);
+  }
+});
+
+// ===========================================================================
+
 test('it waits for htmx to swap the results in', async () => {
   // The bug that made the userscript look dead: Music League does not put the
   // songs in the initial HTML. The page loads, fires hx-get="-/results", and

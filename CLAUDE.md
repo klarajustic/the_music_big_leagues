@@ -277,12 +277,13 @@ round next reaches voting; that capture window closes at the reveal.
 └── test/
     ├── analytics.test.mjs   # the seven invariants, against the real src files
     ├── runtime.test.mjs     # withLock_ / guard_ / warnIfLarge_ against stubs
-    ├── bookmarklet.test.mjs # Mode B scraper, evalled in jsdom against the fixture
+    ├── bookmarklet.test.mjs # both scraper modes, evalled in jsdom
     ├── page-results.html    # FIXTURE: real results page, "Cover Songs", 9 Sep 2026
+    ├── page-voting.html     # FIXTURE: real voting page, round 10, 19 Oct 2026
     └── yt_playlist_test.py  # the lifted scorer's known cases
 ```
 
-`test/page-results.html` is **redacted** and must stay that way: the repo is
+Both `test/page-*.html` fixtures are **redacted** and must stay that way: the repo is
 public, and the original carried eleven colleagues' real names, their vote
 comments and their Music League user ids. Names, comments and ids are all
 synthetic. The substitutions deliberately preserve what the tests exercise —
@@ -567,13 +568,22 @@ running order the guess form's `T<n>.` prefixes must agree with. The theme
 falls back to the last segment of the page `<title>` because the voting page
 has no `h5.card-title`.
 
-**Still untested.** Mode B is pinned against `test/page-results.html`; this is
-not, because no usable capture exists yet — the one attempt grabbed a
-doubleclick ad iframe instead of the page. Capture it the same way during a
-live round (Elements panel, right-click the outermost `<html>`, Copy
-outerHTML — make sure the selection is the page and not an ad frame), redact
-it, and write the test. Until then a Music League redesign here fails silently
-as an empty round rather than as a failing test.
+**Tested** against `test/page-voting.html`, a redacted capture of round 10.
+
+That capture immediately earned its keep: **three of the ten songs had no
+`<audio>` element at all**, because Spotify had no preview mp3 for them. Had
+the id been read from `<audio>` alone, those three would have vanished without
+a word and the guess form would have gone out three songs short. The `x-init`
+fallback is load-bearing, and a test asserts exactly three songs are rescued
+by it, so nobody later "simplifies" it away.
+
+**The voting deadline is not on this page.** Music League shows "Votes due in
+2 days / 21 Oct 2026 3:00pm local" on the *league* page, not the round's own
+voting page, so Mode A cannot fill `votes_close_at` and it stays a manual
+entry on the Rounds row. Reading it would need a third mode running on the
+league page, and the league capture in hand is useless for that — it was taken
+before htmx swapped the round list in. Capture the league page *after* the
+rounds have rendered if this is ever worth building.
 
 **Mode B — reveal. DONE, console-only.** Runs on the results page and prints
 Submissions and Votes as paste-ready TSV. **No endpoint, no token, no
