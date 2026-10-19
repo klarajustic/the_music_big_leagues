@@ -894,6 +894,42 @@ test('timing awards stay absent when there are no guess timestamps', () => {
   assert.ok(names.includes('Fan of everything'));
 });
 
+test('Staying true to yourself finds the repeat offender', () => {
+  const d = { tracks: [], submissions: [], votes: [], guesses: [], rounds: [] };
+  // M submits Chumbawamba three rounds running; N varies, with one repeat.
+  const plan = [
+    ['M', 'Chumbawamba'], ['M', 'Chumbawamba'], ['M', 'chumbawamba'],
+    ['N', 'Dolly Parton'], ['N', 'Dolly Parton'], ['N', 'Aretha Franklin'],
+  ];
+  plan.forEach(([who, artist], i) => {
+    const rid = 'R0' + (Math.floor(i / 2) + 1);
+    const id = rid + who;
+    if (!d.rounds.some((r) => r.round_id === rid)) d.rounds.push({ round_id: rid, season: 1 });
+    d.tracks.push({ round_id: rid, track_id: id, position: 1, title: 'song', artist, genres: '' });
+    d.submissions.push({ round_id: rid, track_id: id, submitter: who, did_not_vote: false });
+    d.votes.push({ round_id: rid, track_id: id, voter: who === 'M' ? 'N' : 'M', points: 2, comment: '' });
+  });
+
+  const row = recompute(d).awards.find((a) => a[1] === 'Staying true to yourself');
+  assert.ok(row, 'award missing');
+  assert.equal(row[2], 'M', 'M has three, N only two');
+  // Case must not split the count, and the detail shows real capitalisation.
+  assert.match(row[3], /Chumbawamba 3 times/);
+  assert.equal(row[4], 3);
+});
+
+test('Staying true to yourself stays quiet when nobody repeats', () => {
+  const d = { tracks: [], submissions: [], votes: [], guesses: [], rounds: [{ round_id: 'R01', season: 1 }] };
+  ['Kate Bush', 'Talk Talk'].forEach((artist, i) => {
+    const id = 'R01t' + i;
+    d.tracks.push({ round_id: 'R01', track_id: id, position: i + 1, title: 's', artist, genres: '' });
+    d.submissions.push({ round_id: 'R01', track_id: id, submitter: 'P' + i, did_not_vote: false });
+    d.votes.push({ round_id: 'R01', track_id: id, voter: 'P' + (1 - i), points: 2, comment: '' });
+  });
+  const names = recompute(d).awards.map((a) => a[1]);
+  assert.ok(!names.includes('Staying true to yourself'));
+});
+
 test('behaviour awards stay quiet until there is enough data', () => {
   // One round is not a pattern. Nothing that claims a habit should appear.
   const d = penaltyFixture();

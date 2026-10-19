@@ -802,6 +802,40 @@ function seasonAwards_(d, results, guessScores, fans) {
     }
   }
 
+  // Who keeps going back to the same artist. Matched on the artist string as
+  // Music League renders it, lowercased, so "Chumbawamba" and "chumbawamba"
+  // are the same act but a different featured credit is not.
+  const artistOf = {};
+  d.tracks.forEach(function (t) {
+    artistOf[key_(t.round_id, t.track_id)] = String(t.artist || '').trim().toLowerCase();
+  });
+  const repeats = {};
+  d.submissions.forEach(function (sub) {
+    const artist = artistOf[key_(sub.round_id, sub.track_id)];
+    if (!artist || !sub.submitter) return;
+    const k = sub.submitter + '\u0000' + artist;
+    repeats[k] = (repeats[k] || 0) + 1;
+  });
+  let loyal = null;
+  Object.keys(repeats).forEach(function (k) {
+    if (repeats[k] < 2) return;   // one submission is not a habit
+    if (loyal && repeats[k] <= loyal.count) return;
+    const parts = k.split('\u0000');
+    loyal = { name: parts[0], artist: parts[1], count: repeats[k] };
+  });
+  if (loyal) {
+    // Echo the artist with its original capitalisation rather than the
+    // lowercased matching key.
+    let pretty = '';
+    d.tracks.forEach(function (t) {
+      const name = String(t.artist || '').trim();
+      if (!pretty && name.toLowerCase() === loyal.artist) pretty = name;
+    });
+    if (!pretty) pretty = loyal.artist;
+    awards.push(['Staying true to yourself', loyal.name,
+      'has submitted ' + pretty + ' ' + loyal.count + ' times', loyal.count]);
+  }
+
   const talkers = Object.keys(comments);
   if (talkers.length) {
     const loudest = talkers.sort(function (a, b) { return comments[b] - comments[a]; })[0];
